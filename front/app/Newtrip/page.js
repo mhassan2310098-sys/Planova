@@ -34,7 +34,7 @@ export default function NewTripPage() {
 
       {/* Back button */}
       <div style={{ padding: '1.25rem 2rem' }}>
-        <button onClick={() => router.push('/dashboard')} style={{
+        <button onClick={() => router.push('/Dashboard')} style={{
           display: 'flex', alignItems: 'center', gap: '0.5rem',
           background: 'none', border: 'none', cursor: 'pointer',
           fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.08em',

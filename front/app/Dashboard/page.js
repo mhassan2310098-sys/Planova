@@ -132,6 +132,9 @@ export default function DashboardPage() {
             }}
               onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.08)'}
               onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
+              onClick={() => {
+              if (card.title === 'NEW TRIP') router.push('/Newtrip');
+              }}
             >
               <div style={{ marginBottom: '1.5rem' }}>{card.icon}</div>
               <h3 style={{ fontSize: '0.85rem', fontWeight: 700, letterSpacing: '0.1em', marginBottom: '0.75rem', color: '#0d1b2a' }}>
