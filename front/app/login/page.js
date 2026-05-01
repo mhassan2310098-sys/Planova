@@ -39,7 +39,7 @@ export default function LoginPage() {
       localStorage.setItem('user', JSON.stringify(data.user));
 
       // Redirect to dashboard (or home for now)
-      router.push('/');
+      router.push('/Dashboard');
     } catch (err) {
       setError('Network error. Make sure the backend is running.');
     } finally {
