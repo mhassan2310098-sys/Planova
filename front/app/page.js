@@ -81,7 +81,7 @@ export default function HomePage() {
 
           <div className="service-card">
             <img
-              src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600"
+              src="https://images.unsplash.com/photo-1476842321362-f5bb3a58ab25?q=80&w=1074&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
               alt="Seasonal Getaways"
             />
             <div className="service-label">Seasonal Getaways</div>
