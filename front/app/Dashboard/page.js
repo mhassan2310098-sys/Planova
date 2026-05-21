@@ -156,16 +156,20 @@ export default function DashboardPage() {
                 icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="1.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>,
                 title: 'DESTINATION SEARCH',
                 desc: 'Search for specific destinations and display detailed information based on your input preferences.',
+                cta: null,
               },
               {
                 icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
-                title: 'SEASON RECOMMENDATIONS',
-                desc: 'Receive location and season-based recommendations for the best time to visit your chosen destination.',
+                title: 'SEASON BASED RECOMMENDATIONS',
+                desc: 'Click here to get personalized season-based recommendations for the best time to visit your destination.',
+                // FIX: Added clickable CTA button for Season Based Recommendations
+                cta: 'CLICK TO GET STARTED →',
               },
               {
                 icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="1.5"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>,
                 title: 'COMPREHENSIVE INFO',
                 desc: 'Access comprehensive travel information including attractions, culture, weather, and local tips.',
+                cta: null,
               },
             ].map((item) => (
               <div key={item.title}>
@@ -179,6 +183,29 @@ export default function DashboardPage() {
                   {item.title}
                 </h4>
                 <p style={{ fontSize: '0.82rem', color: '#666', lineHeight: 1.7 }}>{item.desc}</p>
+                {/* FIX: Render clickable button only for Season Based Recommendations */}
+                {item.cta && (
+                  <button
+                    onClick={() => router.push('/season-recommendations')}
+                    style={{
+                      marginTop: '0.75rem',
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      cursor: 'pointer',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      letterSpacing: '0.06em',
+                      color: '#0d1b2a',
+                      textDecoration: 'underline',
+                      textUnderlineOffset: '3px',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.color = '#1a3a5c'}
+                    onMouseLeave={e => e.currentTarget.style.color = '#0d1b2a'}
+                  >
+                    {item.cta}
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -225,10 +252,38 @@ export default function DashboardPage() {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.25rem', marginBottom: '3rem' }}>
           {[
-            { img: 'https://images.unsplash.com/photo-1533105079780-92b9be482077?w=400', name: "Cox's Bazar", location: 'Chittagong, Bangladesh', price: '৳8,500', rating: '4.7' },
-            { img: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400', name: 'Sundarbans', location: 'Khulna, Bangladesh', price: '৳12,000', rating: '4.8' },
-            { img: 'https://images.unsplash.com/photo-1547471080-7cc2caa01a7e?w=400', name: 'Sylhet', location: 'Sylhet, Bangladesh', price: '৳6,500', rating: '4.6' },
-            { img: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400', name: 'Maldives', location: 'Indian Ocean', price: '৳85,000', rating: '4.9' },
+            {
+              // FIX: Cox's Bazar — actual beach photo from Bangladesh
+              img: 'https://images.unsplash.com/photo-1596402184320-417e7178b2cd?w=400',
+              name: "Cox's Bazar",
+              location: 'Chittagong, Bangladesh',
+              price: '৳8,500',
+              rating: '4.7',
+            },
+            {
+              // FIX: Sundarbans — mangrove forest / tiger reserve photo
+              img: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400',
+              name: 'Sundarbans',
+              location: 'Khulna, Bangladesh',
+              price: '৳12,000',
+              rating: '4.8',
+            },
+            {
+              // FIX: Sylhet — tea garden landscape
+              img: 'https://images.unsplash.com/photo-1567792737720-98f76b9609b2?w=400',
+              name: 'Sylhet',
+              location: 'Sylhet, Bangladesh',
+              price: '৳6,500',
+              rating: '4.6',
+            },
+            {
+              // FIX: Maldives — overwater bungalows / turquoise water
+              img: 'https://images.unsplash.com/photo-1514282401047-d79a71a590e8?w=400',
+              name: 'Maldives',
+              location: 'Indian Ocean',
+              price: '৳85,000',
+              rating: '4.9',
+            },
           ].map((dest) => (
             <div key={dest.name} style={{ background: 'white', border: '1px solid #eee', overflow: 'hidden', cursor: 'pointer' }}
               onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)'}
@@ -282,9 +337,9 @@ export default function DashboardPage() {
               TRENDING NOW
             </h3>
             {[
-              { img: 'https://images.unsplash.com/photo-1533105079780-92b9be482077?w=100', name: "Cox's Bazar", country: 'Bangladesh', trend: '↑ 35%' },
-              { img: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=100', name: 'Sundarbans', country: 'Bangladesh', trend: '↑ 28%' },
-              { img: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100', name: 'Maldives', country: 'International', trend: '↑ 22%' },
+              { img: 'https://images.unsplash.com/photo-1596402184320-417e7178b2cd?w=100', name: "Cox's Bazar", country: 'Bangladesh', trend: '↑ 35%' },
+              { img: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=100', name: 'Sundarbans', country: 'Bangladesh', trend: '↑ 28%' },
+              { img: 'https://images.unsplash.com/photo-1514282401047-d79a71a590e8?w=100', name: 'Maldives', country: 'International', trend: '↑ 22%' },
             ].map((item, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '1rem', paddingBottom: '1rem', borderBottom: i < 2 ? '1px solid #f0f0f0' : 'none', marginBottom: i < 2 ? '1rem' : 0 }}>
                 <img src={item.img} alt={item.name} style={{ width: '44px', height: '44px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
