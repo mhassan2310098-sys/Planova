@@ -18,6 +18,7 @@ export default function Navbar() {
         <li><a href="#services">Services</a></li>
         <li><a href="#features">Features</a></li>
         <li><a href="#contact">Contact Us</a></li>
+        <li><a href="#cta">Login</a></li>
       </ul>
     </nav>
   );

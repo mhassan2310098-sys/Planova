@@ -122,7 +122,7 @@ export default function HomePage() {
       </section>
 
       {/* ─── CTA ─── */}
-      <section className="cta-section">
+      <section className="cta-section" id='cta'>
         <div className="cta-bg" />
         <div className="cta-overlay" />
         <div className="cta-content">
