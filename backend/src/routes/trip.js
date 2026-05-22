@@ -783,7 +783,7 @@ router.post('/save', authMiddleware, async (req, res) => {
     res.status(201).json({ success: true, trip: result.rows[0] });
   } catch (err) {
     console.error('Save trip error:', err);
-    res.status(500).json({ error: 'Failed to save trip.' });
+    res.status(500).json({ error: err.message });
   }
 });
 
