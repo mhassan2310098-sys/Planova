@@ -39,11 +39,12 @@ function DashboardNavbar({ user, onLogout }) {
           <span style={{ position: 'absolute', top: 0, right: 0, width: '8px', height: '8px', background: '#e53e3e', borderRadius: '50%' }} />
         </button>
         <button onClick={onLogout} title="Click to logout" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="1.8">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-            <circle cx="12" cy="7" r="4"/>
-          </svg>
-        </button>
+       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="1.8">
+       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+       <polyline points="16 17 21 12 16 7"/>
+       <line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+       </button>
       </div>
     </nav>
   );
@@ -93,7 +94,7 @@ export default function DashboardPage() {
       desc: 'Access your saved trips, view your full itineraries, hotel details, budget breakdowns and day-by-day plans.',
     },
     {
-      route: '/season-recommendations',
+      route: '/season',
       icon: (
         <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#0d1b2a" strokeWidth="1.5">
           <circle cx="12" cy="12" r="5"/>

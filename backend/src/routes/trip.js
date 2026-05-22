@@ -763,6 +763,18 @@ router.post('/generate-itinerary', async (req, res) => {
     res.status(500).json({ error: 'Failed to generate itinerary.' });
   }
 });
+router.post('/season', async (req, res) => {
+  const { month, travelStyle, activities, budget } = req.body;
+  try {
+    const prompt = `...your prompt here...`;
+    const raw    = await callAI(prompt);
+    const clean  = raw.replace(/```json|```/g, '').trim();
+    const data   = JSON.parse(clean);
+    res.json({ success: true, ...data });
+  } catch (err) {
+    res.status(500).json({ success: false });
+  }
+});
 
 // POST /api/trip/save — save confirmed trip to DB
 router.post('/save', authMiddleware, async (req, res) => {
