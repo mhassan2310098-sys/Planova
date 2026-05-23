@@ -22,6 +22,7 @@ function SearchResultsInner() {
       try {
         const res = await fetch(`${API}/trip/destination-info?destination=${encodeURIComponent(destination)}`);
         const json = await res.json();
+        console.log('API RESPONSE:', JSON.stringify(json)); // ← add this
         setData(json);
       } catch (err) {
         console.error(err);
@@ -44,7 +45,7 @@ function SearchResultsInner() {
 
       {/* Header */}
       <div style={{ background: 'linear-gradient(135deg, #0d1b2a 0%, #1a3a5c 100%)', padding: '2rem 2.5rem', color: 'white' }}>
-        <button onClick={() => router.push('/new-trip')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem', fontFamily: 'Montserrat, sans-serif' }}>
+        <button onClick={() => router.push('/Newtrip')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem', fontFamily: 'Montserrat, sans-serif' }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
           BACK
         </button>
@@ -66,6 +67,23 @@ function SearchResultsInner() {
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             Loading destination info...
           </div>
+          // After the loading check, add:
+          ) : data && !data.success && data.error ? (
+         <div style={{ textAlign: 'center', padding: '4rem', color: '#888' }}>
+         <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🗺️</div>
+         <h2 style={{ color: '#0d1b2a', fontSize: '1rem', fontWeight: 800, marginBottom: '0.5rem' }}>
+         Destination Not Found
+         </h2>
+          <p style={{ fontSize: '0.85rem', marginBottom: '1.5rem' }}>{data.error}</p>
+         <button onClick={() => router.push('/new-trip')} style={{
+         padding: '0.75rem 2rem', background: '#0d1b2a', color: 'white',
+         border: 'none', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 800,
+         letterSpacing: '0.12em', textTransform: 'uppercase', fontFamily: 'Montserrat, sans-serif'
+         }}>
+         Try Another Destination
+       </button>
+      </div>
+  // ← END OF ADDED BLOCK
         ) : (
           <>
             {/* ABOUT */}

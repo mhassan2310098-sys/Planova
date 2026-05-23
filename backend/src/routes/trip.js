@@ -591,11 +591,11 @@ function getDestinationKey(destination) {
   for (const city of Object.keys(hotelDatabase)) {
     if (key.includes(city) || city.includes(key)) return city;
   }
-  return "cox's bazar";
+  return null;
 }
 
 function getHotelsForDestination(destination) {
-  return hotelDatabase[getDestinationKey(destination)] || hotelDatabase["cox's bazar"];
+  return hotelDatabase[getDestinationKey(destination)];
 }
 
 function filterHotels(destination, budgetMax, travelType, duration) {
@@ -623,7 +623,7 @@ async function callAI(prompt) {
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_API_KEY}` },
-      body: JSON.stringify({ model: 'llama3-8b-8192', messages: [{ role: 'user', content: prompt }], temperature: 0.7, max_tokens: 2000 }),
+      body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: [{ role: 'user', content: prompt }], temperature: 0.7, max_tokens: 2000 }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error?.message || 'Groq error');
@@ -727,13 +727,86 @@ function fallbackItinerary(destination, duration, travelType, selectedActivities
 // ─────────────────────────────────────────────
 
 // GET /api/trip/destination-info
-router.get('/destination-info', (req, res) => {
+// GET /api/trip/destination-info
+router.get('/destination-info', async (req, res) => {
   const { destination } = req.query;
   if (!destination) return res.status(400).json({ error: 'destination required' });
+
   const key = getDestinationKey(destination);
-  const info = destinationInfo[key];
-  if (!info) return res.json({ success: true, info: null, hotels: getHotelsForDestination(destination) });
-  res.json({ success: true, info, hotels: hotelDatabase[key] || [] });
+
+  // If destination is in our database, return it directly
+  if (key && destinationInfo[key]) {
+    return res.json({ success: true, info: destinationInfo[key], hotels: hotelDatabase[key] || [] });
+  }
+
+  // Not in database — ask Groq AI to generate info
+  try {
+    const prompt = `
+You are a travel expert. Generate destination information and hotels for "${destination}".
+
+Return ONLY this JSON, no markdown, no extra text:
+{
+  "about": "3-4 sentence description of the destination",
+  "attractions": [
+    { "name": "Attraction Name", "desc": "Short description", "emoji": "🏛️" }
+  ],
+  "activities": [
+    "Activity 1",
+    "Activity 2",
+    "Activity 3",
+    "Activity 4",
+    "Activity 5",
+    "Activity 6"
+  ],
+  "transport": [
+    { "mode": "BY AIR", "desc": "How to get there by air from Bangladesh", "duration": "X hours", "cost": "৳XX,000-XX,000", "emoji": "✈️" },
+    { "mode": "BY ROAD", "desc": "Road/bus options if applicable", "duration": "X hours", "cost": "৳X,000-X,000", "emoji": "🚌" }
+  ],
+  "bestTime": "Best months to visit",
+  "weather": "Climate description"
+}
+  "hotels": [
+    {
+      "id": 9001,
+      "name": "Hotel Name",
+      "tier": "Luxury",
+      "location": "Area, City",
+      "priceMin": 15000,
+      "priceMax": 35000,
+      "rating": 4.7,
+      "amenities": ["Pool", "Spa", "Restaurant"],
+      "img": "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=400",
+      "bestFor": ["couple", "solo", "family", "group"],
+      "rooms": [
+        { "type": "Deluxe Room", "price": 15000, "guests": 2, "beds": "1 King" }
+       ]
+     }
+   ]
+ }
+
+
+Rules:
+- Include 4-6 attractions
+- Include 6-8 activities  
+- Be accurate and specific to ${destination}
+- Return ONLY valid JSON
+`.trim();
+
+    const raw = await callAI(prompt);
+    const clean = raw.replace(/```json|```/g, '').trim();
+    const aiInfo = JSON.parse(clean);
+
+    return res.json({ success: true, info: aiInfo, hotels: [] });
+
+  } catch (err) {
+    console.error('AI destination info failed:', err.message);
+    return res.status(404).json({ 
+      success: false, 
+      info: null, 
+      hotels: [],
+      error: `No information found for "${destination}". Please try a different destination.`
+    });
+  }
 });
 
 // GET /api/trip/cities
