@@ -3,10 +3,9 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
-export default function LoginPage() {
+export default function HotelLoginPage() {
   const router = useRouter();
   const [formData, setFormData] = useState({ email: '', password: '' });
-  const [remember, setRemember] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -21,7 +20,7 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/hotel-auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
@@ -35,9 +34,10 @@ export default function LoginPage() {
       }
 
       localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      localStorage.setItem('hotel', JSON.stringify(data.hotel));
+      localStorage.setItem('role', 'hotel');
 
-      router.push('/Dashboard');
+      router.push('/HotelDashboard');
     } catch (err) {
       setError('Network error. Make sure the backend is running.');
     } finally {
@@ -47,26 +47,26 @@ export default function LoginPage() {
 
   return (
     <div className="auth-layout">
-      {/* Left side — image */}
+      {/* Left side */}
       <div className="auth-left">
         <div
           className="auth-left-bg"
           style={{
             backgroundImage:
-              "url('https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200')",
+              "url('https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?w=1200')",
           }}
         />
         <div className="auth-left-overlay" />
         <div className="auth-left-content">
-          <h2>Welcome to Planova</h2>
+          <h2>Hotel Manager Portal</h2>
           <p>
-            Your journey to seamless travel planning begins here. Discover, plan,
-            and explore with confidence.
+            Manage your property listings, bookings, and guest experiences all
+            in one place.
           </p>
         </div>
       </div>
 
-      {/* Right side — form */}
+      {/* Right side */}
       <div className="auth-right">
         <div className="auth-form-wrap">
           {/* Logo */}
@@ -77,27 +77,22 @@ export default function LoginPage() {
               <line x1="16" y1="6" x2="16" y2="22" />
             </svg>
             <h1>PLANOVA</h1>
-            <span>SMART TRAVEL PLANNER</span>
+            <span>HOTEL MANAGER PORTAL</span>
           </div>
 
-          {/* Tabs */}
-          <div className="auth-tabs">
-            <span className="auth-tab active">LOGIN</span>
-            <Link href="/signup" className="auth-tab">SIGN UP</Link>
-          </div>
+          {/* Badge */}
+          <div className="hotel-badge">🏨 HOTEL MANAGER LOGIN</div>
 
-          {/* Error */}
           {error && <div className="error-msg">{error}</div>}
 
-          {/* Form */}
           <form onSubmit={handleSubmit}>
             <div className="form-group">
-              <label className="form-label">Email Address</label>
+              <label className="form-label">Hotel Email</label>
               <input
                 className="form-input"
                 type="email"
                 name="email"
-                placeholder="your@email.com"
+                placeholder="hotel@example.com"
                 value={formData.email}
                 onChange={handleChange}
                 required
@@ -117,36 +112,16 @@ export default function LoginPage() {
               />
             </div>
 
-            <div className="form-row">
-              <label className="remember-label">
-                <input
-                  type="checkbox"
-                  checked={remember}
-                  onChange={(e) => setRemember(e.target.checked)}
-                />
-                Remember Me
-              </label>
-              <a href="#" className="forgot-link">FORGOT PASSWORD?</a>
-            </div>
-
             <button className="submit-btn" type="submit" disabled={loading}>
-              {loading ? 'LOGGING IN...' : 'LOGIN'}
+              {loading ? 'LOGGING IN...' : 'LOGIN AS HOTEL MANAGER'}
             </button>
           </form>
 
-          <div className="auth-divider">
-            <span>OR</span>
-          </div>
-
-          <Link href="/hotel-login" className="hotel-btn">
-            🏨 LOGIN AS HOTEL MANAGER
-          </Link>
-
-          <Link href="/" className="back-home">← BACK TO HOME</Link>
+          <Link href="/login" className="back-home">← BACK TO USER LOGIN</Link>
 
           <p className="auth-switch">
-            DON&apos;T HAVE AN ACCOUNT?{' '}
-            <Link href="/signup">Sign up</Link>
+            NOT REGISTERED YET?{' '}
+            <Link href="/signup?role=hotel">Register your hotel</Link>
           </p>
         </div>
       </div>

@@ -1,10 +1,13 @@
 'use client';
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function SignupPage() {
+function SignupForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isHotel = searchParams.get('role') === 'hotel';
+
   const [formData, setFormData] = useState({ name: '', email: '', password: '', confirmPassword: '' });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -33,7 +36,9 @@ export default function SignupPage() {
     setLoading(true);
 
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
+      const endpoint = isHotel ? '/hotel-auth/register' : '/auth/register';
+
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -50,12 +55,17 @@ export default function SignupPage() {
         return;
       }
 
-      // Save token
       localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+
+      if (isHotel) {
+        localStorage.setItem('hotel', JSON.stringify(data.hotel));
+        localStorage.setItem('role', 'hotel');
+      } else {
+        localStorage.setItem('user', JSON.stringify(data.user));
+      }
 
       setSuccess('Account created! Redirecting...');
-      setTimeout(() => router.push('/'), 1500);
+      setTimeout(() => router.push(isHotel ? '/HotelDashboard' : '/'), 1500);
     } catch (err) {
       setError('Network error. Make sure the backend is running.');
     } finally {
@@ -70,17 +80,30 @@ export default function SignupPage() {
         <div
           className="auth-left-bg"
           style={{
-            backgroundImage:
-              "url('https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=1200')",
+            backgroundImage: isHotel
+              ? "url('https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?w=1200')"
+              : "url('https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=1200')",
           }}
         />
         <div className="auth-left-overlay" />
         <div className="auth-left-content">
-          <h2>Start Your Adventure</h2>
-          <p>
-            Create your free account and unlock intelligent travel planning, personalized
-            itineraries, and real-time travel insights.
-          </p>
+          {isHotel ? (
+            <>
+              <h2>Register Your Hotel</h2>
+              <p>
+                Join Planova as a hotel partner and reach thousands of travellers
+                looking for their perfect stay.
+              </p>
+            </>
+          ) : (
+            <>
+              <h2>Start Your Adventure</h2>
+              <p>
+                Create your free account and unlock intelligent travel planning,
+                personalized itineraries, and real-time travel insights.
+              </p>
+            </>
+          )}
         </div>
       </div>
 
@@ -95,14 +118,21 @@ export default function SignupPage() {
               <line x1="16" y1="6" x2="16" y2="22" />
             </svg>
             <h1>PLANOVA</h1>
-            <span>SMART TRAVEL PLANNER</span>
+            <span>{isHotel ? 'HOTEL MANAGER PORTAL' : 'SMART TRAVEL PLANNER'}</span>
           </div>
 
-          {/* Tabs */}
-          <div className="auth-tabs">
-            <Link href="/login" className="auth-tab">LOGIN</Link>
-            <span className="auth-tab active">SIGN UP</span>
-          </div>
+          {/* Tabs — only show for regular signup */}
+          {!isHotel && (
+            <div className="auth-tabs">
+              <Link href="/login" className="auth-tab">LOGIN</Link>
+              <span className="auth-tab active">SIGN UP</span>
+            </div>
+          )}
+
+          {/* Hotel badge */}
+          {isHotel && (
+            <div className="hotel-badge">🏨 HOTEL REGISTRATION</div>
+          )}
 
           {/* Messages */}
           {error && <div className="error-msg">{error}</div>}
@@ -111,12 +141,12 @@ export default function SignupPage() {
           {/* Form */}
           <form onSubmit={handleSubmit}>
             <div className="form-group">
-              <label className="form-label">Full Name</label>
+              <label className="form-label">{isHotel ? 'Hotel Name' : 'Full Name'}</label>
               <input
                 className="form-input"
                 type="text"
                 name="name"
-                placeholder="John Doe"
+                placeholder={isHotel ? 'Grand Hotel Dhaka' : 'John Doe'}
                 value={formData.name}
                 onChange={handleChange}
                 required
@@ -124,12 +154,12 @@ export default function SignupPage() {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Email Address</label>
+              <label className="form-label">{isHotel ? 'Hotel Email' : 'Email Address'}</label>
               <input
                 className="form-input"
                 type="email"
                 name="email"
-                placeholder="your@email.com"
+                placeholder={isHotel ? 'hotel@example.com' : 'your@email.com'}
                 value={formData.email}
                 onChange={handleChange}
                 required
@@ -163,18 +193,40 @@ export default function SignupPage() {
             </div>
 
             <button className="submit-btn" type="submit" disabled={loading} style={{ marginTop: '0.5rem' }}>
-              {loading ? 'CREATING ACCOUNT...' : 'CREATE ACCOUNT'}
+              {loading
+                ? 'CREATING ACCOUNT...'
+                : isHotel ? 'REGISTER HOTEL' : 'CREATE ACCOUNT'}
             </button>
           </form>
 
-          <Link href="/" className="back-home">← BACK TO HOME</Link>
+          <Link href={isHotel ? '/hotel-login' : '/'} className="back-home">
+            {isHotel ? '← BACK TO HOTEL LOGIN' : '← BACK TO HOME'}
+          </Link>
 
           <p className="auth-switch">
-            ALREADY HAVE AN ACCOUNT?{' '}
-            <Link href="/login">Log in</Link>
+            {isHotel ? (
+              <>
+                ALREADY REGISTERED?{' '}
+                <Link href="/hotel-login">Hotel login</Link>
+              </>
+            ) : (
+              <>
+                ALREADY HAVE AN ACCOUNT?{' '}
+                <Link href="/login">Log in</Link>
+              </>
+            )}
           </p>
         </div>
       </div>
     </div>
+  );
+}
+
+// useSearchParams requires Suspense boundary in Next.js
+export default function SignupPage() {
+  return (
+    <Suspense>
+      <SignupForm />
+    </Suspense>
   );
 }
