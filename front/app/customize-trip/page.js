@@ -79,7 +79,7 @@ function CustomizeTripInner() {
 
       // Step 2: Auto-save to DB
       const token = localStorage.getItem('token');
-      console.log('TOKEN:', token ? 'EXISTS' : 'MISSING — user not logged in');
+      let savedTripId = null;
 
       if (token) {
         try {
@@ -99,34 +99,63 @@ function CustomizeTripInner() {
             tips:            itinerary.tips            || [],
           };
 
-          console.log('Saving trip payload keys:', Object.keys(savePayload));
-
           const saveRes  = await fetch(`${API}/trip/save`, {
             method:  'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization:  `Bearer ${token}`,
-            },
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             body: JSON.stringify(savePayload),
           });
 
           const saveText = await saveRes.text();
-          console.log('AUTO-SAVE STATUS:', saveRes.status);
-          console.log('AUTO-SAVE RESPONSE:', saveText);
-
           let saveJson;
           try { saveJson = JSON.parse(saveText); } catch { saveJson = {}; }
 
-          if (!saveRes.ok || !saveJson.success) {
-            console.error('Auto-save failed:', saveJson.error || saveText);
-          } else {
-            console.log('Trip auto-saved successfully!');
+          if (saveRes.ok && saveJson.success) {
+            savedTripId = saveJson.trip?.id || null;
+            console.log('Trip saved, id:', savedTripId);
           }
         } catch (saveErr) {
-          console.error('Auto-save network error:', saveErr.message);
+          console.error('Save error:', saveErr.message);
         }
-      } else {
-        console.warn('Skipping auto-save — no token in localStorage');
+
+        // Step 2b: Auto-book ONLY if hotel is from DB and trip was saved successfully
+        if (selectedHotel?.fromDB && savedTripId) {
+          try {
+            const user = JSON.parse(localStorage.getItem('user') || '{}');
+
+            // Strip the "db_" prefix to get the real integer listing ID
+            const rawId = String(selectedHotel.id).replace('db_', '');
+            const listingId = Number(rawId);
+
+            if (!isNaN(listingId) && listingId > 0) {
+              const bookRes = await fetch(`${API}/booking/auto-book`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  hotel_listing_id: listingId,         // real integer, e.g. 5 (not "db_5")
+                  hotel_name:       selectedHotel.name,
+                  trip_id:          savedTripId,        // confirmed trip ID from DB
+                  guest_name:       user.name  || 'Guest',
+                  guest_email:      user.email || '',
+                  check_in:         startDate  || null,
+                  check_out:        endDate    || null,
+                  guests:           1,
+                }),
+              });
+              const bookJson = await bookRes.json();
+              if (bookJson.success && !bookJson.skipped) {
+                console.log('Auto-booking created:', bookJson.booking?.id);
+              } else {
+                console.log('Auto-book skipped:', bookJson.reason);
+              }
+            } else {
+              console.warn('Invalid listing ID, skipping auto-book:', selectedHotel.id);
+            }
+          } catch (bookErr) {
+            console.error('Auto-book error (non-fatal):', bookErr.message);
+          }
+        } else if (selectedHotel?.fromDB && !savedTripId) {
+          console.warn('Trip save failed — skipping auto-book to avoid orphaned booking.');
+        }
       }
 
       // Step 3: Store in sessionStorage and navigate
@@ -229,6 +258,11 @@ function CustomizeTripInner() {
                         <span style={{ position: 'absolute', top: '8px', left: '8px', background: tierColor(hotel.tier), color: 'white', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.08em', padding: '0.2rem 0.5rem', textTransform: 'uppercase' }}>
                           {hotel.tier}
                         </span>
+                        {hotel.fromDB && (
+                          <span style={{ position: 'absolute', bottom: '8px', left: '8px', background: '#15803d', color: 'white', fontSize: '0.58rem', fontWeight: 700, letterSpacing: '0.06em', padding: '0.15rem 0.45rem', textTransform: 'uppercase' }}>
+                            ✓ Listed Hotel
+                          </span>
+                        )}
                         {isSelected && (
                           <div style={{ position: 'absolute', top: '8px', right: '8px', background: '#0d1b2a', borderRadius: '50%', width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>

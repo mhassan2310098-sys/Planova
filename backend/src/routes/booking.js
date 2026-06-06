@@ -13,7 +13,9 @@ router.get('/hotels', async (req, res) => {
       `SELECT hl.*, h.name AS manager_name
        FROM hotel_listings hl
        JOIN hotels h ON h.id = hl.hotel_id
-       WHERE LOWER(hl.city) = LOWER($1) AND hl.is_active = true
+       WHERE (LOWER(hl.city) LIKE '%' || LOWER($1) || '%'
+        OR LOWER($1) LIKE '%' || LOWER(hl.city) || '%')
+       AND hl.is_active = true
        ORDER BY hl.rating DESC`,
       [city.trim()]
     );
@@ -66,7 +68,51 @@ router.get('/my-bookings', authMiddleware, async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+// GET /api/booking/trip/:tripId — get booking for a specific trip
+router.get('/trip/:tripId', authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT b.*, pr.amount AS payment_amount, pr.note AS payment_note,
+              pr.status AS payment_status
+       FROM bookings b
+       LEFT JOIN payment_requests pr ON pr.booking_id = b.id
+       WHERE b.trip_id = $1 AND b.user_id = $2
+       ORDER BY b.created_at DESC LIMIT 1`,
+      [req.params.tripId, req.user.id]
+    );
+    res.json({ success: true, booking: result.rows[0] || null });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+// POST /api/booking/auto-book — auto create booking when DB hotel selected
+router.post('/auto-book', authMiddleware, async (req, res) => {
+  const { hotel_listing_id, hotel_name, trip_id, guest_name, guest_email, check_in, check_out, guests } = req.body;
 
+  // Skip if not a DB hotel
+  
+  try {
+    // Check if booking already exists for this trip
+    const existing = await pool.query(
+      'SELECT id FROM bookings WHERE trip_id=$1 AND user_id=$2',
+      [trip_id, req.user.id]
+    );
+    if (existing.rows.length > 0) {
+      return res.json({ success: true, skipped: true, reason: 'Booking already exists for this trip' });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO bookings
+        (user_id, hotel_listing_id, trip_id, guest_name, guest_email, check_in, check_out, guests, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending') RETURNING *`,
+      [req.user.id, hotel_listing_id, trip_id, guest_name, guest_email, check_in || null, check_out || null, guests || 1]
+    );
+    res.status(201).json({ success: true, booking: result.rows[0] });
+  } catch (err) {
+    console.error('Auto-book error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 // POST /api/booking/:id/pay — user marks as paid
 router.post('/:id/pay', authMiddleware, async (req, res) => {
   try {

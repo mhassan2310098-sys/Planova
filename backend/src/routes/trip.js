@@ -1,3 +1,6 @@
+console.log('USE_GROQ:', process.env.USE_GROQ);
+console.log('GROQ_KEY exists:', !!process.env.GROQ_API_KEY);
+
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
@@ -734,12 +737,51 @@ router.get('/destination-info', async (req, res) => {
 
   const key = getDestinationKey(destination);
 
-  // If destination is in our database, return it directly
-  if (key && destinationInfo[key]) {
-    return res.json({ success: true, info: destinationInfo[key], hotels: hotelDatabase[key] || [] });
+  // ── Always fetch DB hotels first ──
+  let dbHotels = [];
+  try {
+    const dbResult = await pool.query(
+      `SELECT hl.*, h.name AS manager_name
+       FROM hotel_listings hl
+       JOIN hotels h ON h.id = hl.hotel_id
+       WHERE (LOWER(hl.city) LIKE '%' || LOWER($1) || '%'
+       OR LOWER($1) LIKE '%' || LOWER(hl.city) || '%')
+       AND hl.is_active = true
+       ORDER BY hl.rating DESC`,
+      [destination.toLowerCase().trim()]
+    );
+    dbHotels = dbResult.rows.map(h => ({
+      id: `db_${h.id}`,
+      name: h.name,
+      tier: h.tier,
+      location: h.location,
+      priceMin: Number(h.price_min),
+      priceMax: Number(h.price_max),
+      rating: parseFloat(h.rating) || 4.0,
+      amenities: h.amenities || [],
+      img: h.img_url || 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=400',
+      bestFor: h.best_for || ['solo', 'couple', 'family', 'group'],
+      rooms: [
+        { type: 'Standard Room', price: Number(h.price_min), guests: 2, beds: '1 Double' },
+        { type: 'Deluxe Room',   price: Number(h.price_max), guests: 2, beds: '1 King'   },
+      ],
+      fromDB: true,
+    }));
+  } catch (err) {
+    console.error('DB hotel fetch error:', err.message);
   }
 
-  // Not in database — ask Groq AI to generate info
+  // ── Hardcoded destination — merge DB hotels first ──
+  if (key && destinationInfo[key]) {
+    const hardcodedHotels = hotelDatabase[key] || [];
+    return res.json({
+      success: true,
+      info: destinationInfo[key],
+      hotels: [...dbHotels, ...hardcodedHotels],
+    });
+  }
+
+  // ── Not hardcoded — ask Groq AI ──
   try {
     const prompt = `
 You are a travel expert. Generate destination information and hotels for "${destination}".
@@ -763,8 +805,7 @@ Return ONLY this JSON, no markdown, no extra text:
     { "mode": "BY ROAD", "desc": "Road/bus options if applicable", "duration": "X hours", "cost": "৳X,000-X,000", "emoji": "🚌" }
   ],
   "bestTime": "Best months to visit",
-  "weather": "Climate description"
-}
+  "weather": "Climate description",
   "hotels": [
     {
       "id": 9001,
@@ -779,15 +820,14 @@ Return ONLY this JSON, no markdown, no extra text:
       "bestFor": ["couple", "solo", "family", "group"],
       "rooms": [
         { "type": "Deluxe Room", "price": 15000, "guests": 2, "beds": "1 King" }
-       ]
-     }
-   ]
- }
-
+      ]
+    }
+  ]
+}
 
 Rules:
 - Include 4-6 attractions
-- Include 6-8 activities  
+- Include 6-8 activities
 - Be accurate and specific to ${destination}
 - Return ONLY valid JSON
 `.trim();
@@ -795,20 +835,28 @@ Rules:
     const raw = await callAI(prompt);
     const clean = raw.replace(/```json|```/g, '').trim();
     const aiInfo = JSON.parse(clean);
+    const aiHotels = aiInfo.hotels || [];
+    delete aiInfo.hotels;
 
-    return res.json({ success: true, info: aiInfo, hotels: [] });
+    return res.json({
+      success: true,
+      info: aiInfo,
+      hotels: [...dbHotels, ...aiHotels],
+    });
 
   } catch (err) {
     console.error('AI destination info failed:', err.message);
-    return res.status(404).json({ 
-      success: false, 
-      info: null, 
+    if (dbHotels.length > 0) {
+      return res.json({ success: true, info: null, hotels: dbHotels });
+    }
+    return res.status(404).json({
+      success: false,
+      info: null,
       hotels: [],
       error: `No information found for "${destination}". Please try a different destination.`
     });
   }
 });
-
 // GET /api/trip/cities
 router.get('/cities', (req, res) => {
   res.json({ success: true, cities: Object.keys(hotelDatabase) });
