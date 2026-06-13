@@ -4,420 +4,585 @@ import { useRouter } from 'next/navigation';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
-const typeColors = {
-  food:       { bg: '#fff7ed', color: '#c2410c', label: '🍽 Food' },
-  attraction: { bg: '#eff6ff', color: '#1d4ed8', label: '🏛 Attraction' },
-  leisure:    { bg: '#f0fdf4', color: '#15803d', label: '🌿 Leisure' },
-  travel:     { bg: '#faf5ff', color: '#7e22ce', label: '✈ Travel' },
+const BOOKING_STATUS = {
+  pending:           { bg: '#fff7ed', color: '#c2410c', label: '⏳ Booking Pending',     dot: '#f97316' },
+  payment_requested: { bg: '#eff6ff', color: '#1d4ed8', label: '💳 Payment Required',    dot: '#3b82f6' },
+  paid:              { bg: '#faf5ff', color: '#7e22ce', label: '🔄 Awaiting Confirmation', dot: '#a855f7' },
+  confirmed:         { bg: '#f0fdf4', color: '#15803d', label: '✅ Booking Confirmed',    dot: '#22c55e' },
+  cancelled:         { bg: '#fff0f0', color: '#cc0000', label: '❌ Cancelled',            dot: '#ef4444' },
 };
 
-export default function MyTripPage() {
+const PAYMENT_METHODS = [
+  { id: 'bkash',  label: 'bKash',         logo: '🟣', number_label: 'bKash Number' },
+  { id: 'nagad',  label: 'Nagad',          logo: '🟠', number_label: 'Nagad Number' },
+  { id: 'rocket', label: 'Rocket (DBBL)',  logo: '🟣', number_label: 'Rocket Number' },
+  { id: 'bank',   label: 'Bank Transfer',  logo: '🏦', number_label: 'Account Number' },
+];
+
+// Generate dummy but destination-consistent emergency info
+const getEmergencyInfo = (destination) => {
+  const city = destination?.split(',')[0]?.trim() || 'the city';
+  return {
+    police:    '999',
+    ambulance: '199',
+    fire:      '199',
+    hospitals: [
+      { name: `${city} General Hospital`,    address: `12 Hospital Road, ${city}`,         phone: '+880 1711-000001' },
+      { name: `${city} Medical Centre`,      address: `45 Health Avenue, ${city}`,         phone: '+880 1711-000002' },
+      { name: `Central Clinic ${city}`,      address: `8 Clinic Lane, Central ${city}`,    phone: '+880 1711-000003' },
+    ],
+    emergency_contacts: [
+      { label: 'Local Tourism Helpline', number: '+880 1800-000100' },
+      { label: 'Hotel Front Desk (24h)', number: '+880 1711-100200' },
+      { label: 'Planova Support',        number: '+880 1700-657656' },
+    ],
+  };
+};
+
+export default function MyTripsPage() {
   const router = useRouter();
-  const [tripData, setTripData]   = useState(null);
-  const [activeDay, setActiveDay] = useState(0);
-  const [saving, setSaving]       = useState(false);
-  const [saved, setSaved]         = useState(false);
-  const [saveError, setSaveError] = useState('');
+  const [trips, setTrips]           = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [expanded, setExpanded]     = useState(null);
+  const [deleting, setDeleting]     = useState(null);
+
+  // bookings: { [tripId]: bookingObject }
+  const [bookings, setBookings]     = useState({});
+
+  // payment modal
+  const [payModal, setPayModal]     = useState(null); // booking object
+  const [payMethod, setPayMethod]   = useState('bkash');
+  const [payName, setPayName]       = useState('');
+  const [payNumber, setPayNumber]   = useState('');
+  const [paying, setPaying]         = useState(false);
+  const [payError, setPayError]     = useState('');
+  const [paySuccess, setPaySuccess] = useState(false);
 
   useEffect(() => {
-    const raw = sessionStorage.getItem('currentTrip');
-    if (!raw) { router.push('/new-trip'); return; }
-    try {
-      const parsed = JSON.parse(raw);
-      setTripData(parsed);
-    } catch {
-      router.push('/new-trip');
-    }
+    const token = localStorage.getItem('token');
+    if (!token) { router.push('/login'); return; }
+    fetchTrips(token);
+    // Pre-fill name from localStorage
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    if (user.name) setPayName(user.name);
   }, []);
 
-  if (!tripData) return null;
-
-  // ── Safely extract everything from sessionStorage ──
-  // customize-trip stores: { destination, duration, travelType, budgetMin, budgetMax,
-  //   startDate, endDate, hotel, activities,
-  //   itinerary: { overview, days, budgetBreakdown, tips },
-  //   overview, budgetBreakdown, tips }
-  const {
-    destination,
-    duration,
-    travelType,
-    budgetMin,
-    budgetMax,
-    startDate,
-    endDate,
-    hotel,
-    activities,
-    itinerary,
-    overview,
-    budgetBreakdown,
-    tips,
-  } = tripData;
-
-  // itinerary can be the full object OR already extracted
-  // Handle both shapes safely
-  const days           = itinerary?.days || [];
-  const safeOverview   = overview || itinerary?.overview || '';
-  const safeBudget     = budgetBreakdown || itinerary?.budgetBreakdown || {};
-  const safeTips       = tips || itinerary?.tips || [];
-  const currentDay     = days[activeDay];
-
-  // ── Save trip to DB ──
-  const handleSave = async () => {
-    setSaving(true);
-    setSaveError('');
-
-    const token = localStorage.getItem('token');
-    if (!token) {
-      setSaveError('Please log in to save your trip.');
-      setSaving(false);
-      return;
-    }
-
+  const fetchTrips = async (token) => {
+    setLoading(true);
     try {
-      const payload = {
-        destination:     String(destination || ''),
-        duration:        Number(duration)   || 1,
-        travelType:      String(travelType  || 'solo'),
-        budgetMin:       Number(budgetMin)  || 0,
-        budgetMax:       Number(budgetMax)  || 0,
-        startDate:       startDate || null,
-        endDate:         endDate   || null,
-        hotel:           hotel     || {},
-        activities:      Array.isArray(activities) ? activities : [],
-        itinerary:       days,          // send the days array
-        budgetBreakdown: safeBudget,
-        overview:        safeOverview,
-        tips:            safeTips,
-      };
-
-      console.log('Saving payload:', payload); // debug — remove later
-
-      const res = await fetch(`${API}/trip/save`, {
-        method:  'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization:  `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
+      const res  = await fetch(`${API}/trip/my-trips`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-
-      const text = await res.text();
-      console.log('Save response:', text); // debug — remove later
-
-      let json;
-      try { json = JSON.parse(text); }
-      catch { throw new Error(`Server error (${res.status})`); }
-     console.log('STATUS:', res.status, 'JSON:', JSON.stringify(json));
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || json.message || `Save failed (${res.status})`);
+      const json = await res.json();
+      if (json.success) {
+        setTrips(json.trips);
+        fetchAllBookings(json.trips, token);
       }
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
+  };
 
-      setSaved(true);
+  const fetchAllBookings = async (trips, token) => {
+    const results = {};
+    await Promise.all(
+      trips.map(async (trip) => {
+        try {
+          const res  = await fetch(`${API}/booking/trip/${trip.id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const json = await res.json();
+          if (json.success && json.booking) {
+            results[trip.id] = json.booking;
+          }
+        } catch (err) { /* silent */ }
+      })
+    );
+    setBookings(results);
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this trip?')) return;
+    setDeleting(id);
+    const token = localStorage.getItem('token');
+    try {
+      await fetch(`${API}/trip/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setTrips(prev => prev.filter(t => t.id !== id));
+      if (expanded === id) setExpanded(null);
+    } catch (err) { console.error(err); }
+    finally { setDeleting(null); }
+  };
+
+  const viewTrip = (trip) => {
+    const hotel           = typeof trip.hotel === 'string' ? JSON.parse(trip.hotel || '{}') : (trip.hotel || {});
+    const itineraryDays   = typeof trip.itinerary === 'string' ? JSON.parse(trip.itinerary || '[]') : (trip.itinerary || []);
+    const budgetBreakdown = typeof trip.budget_breakdown === 'string' ? JSON.parse(trip.budget_breakdown || '{}') : (trip.budget_breakdown || {});
+    const activities      = typeof trip.activities === 'string' ? JSON.parse(trip.activities || '[]') : (trip.activities || []);
+    const tips            = typeof trip.tips === 'string' ? JSON.parse(trip.tips || '[]') : (trip.tips || []);
+
+    sessionStorage.setItem('currentTrip', JSON.stringify({
+      destination:     trip.destination,
+      duration:        trip.duration,
+      travelType:      trip.travel_type,
+      budgetMin:       trip.budget_min,
+      budgetMax:       trip.budget_max,
+      startDate:       trip.start_date,
+      endDate:         trip.end_date,
+      hotel,
+      activities,
+      itinerary:       { days: itineraryDays, overview: trip.overview, budgetBreakdown, tips },
+      overview:        trip.overview,
+      budgetBreakdown,
+      tips,
+    }));
+    router.push('/my-trip');
+  };
+
+  const formatDate = (d) => {
+    if (!d) return '—';
+    return new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  // ── Payment ──
+  const openPayModal = (booking) => {
+    setPayModal(booking);
+    setPayMethod('bkash');
+    setPayError('');
+    setPaySuccess(false);
+    setPayNumber('');
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    setPayName(user.name || '');
+  };
+
+  const handlePay = async () => {
+    if (!payName.trim())   { setPayError('Please enter your name.'); return; }
+    if (!payNumber.trim()) { setPayError('Please enter your account/number.'); return; }
+    setPaying(true);
+    setPayError('');
+    const token = localStorage.getItem('token');
+    try {
+      const res  = await fetch(`${API}/booking/${payModal.id}/pay`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ method: payMethod, name: payName, number: payNumber }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Payment failed.');
+      setPaySuccess(true);
+      setBookings(prev => ({
+        ...prev,
+        [payModal.trip_id]: { ...prev[payModal.trip_id], status: 'paid', payment_status: 'paid' },
+      }));
+      setTimeout(() => setPayModal(null), 2000);
     } catch (err) {
-      console.error('Save error:', err);
-      setSaveError(err.message);
+      setPayError(err.message);
     } finally {
-      setSaving(false);
+      setPaying(false);
     }
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f5f5f5', fontFamily: 'Montserrat, sans-serif', paddingBottom: '80px' }}>
+    <div style={{ minHeight: '100vh', background: '#f5f5f5', fontFamily: 'Montserrat, sans-serif', paddingBottom: '60px' }}>
       <style>{`
-        @keyframes spin    { to { transform: rotate(360deg); } }
-        @keyframes fadeUp  { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
-        .day-btn:hover     { background: #1a3a5c !important; color: white !important; }
-        .activity-row:hover{ background: #f8fafc !important; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+        .trip-card:hover { box-shadow: 0 6px 24px rgba(0,0,0,0.09) !important; }
+        .trip-card { transition: box-shadow 0.2s !important; }
+        .pay-method:hover { border-color: #0d1b2a !important; }
+        .emergency-row:hover { background: #f9f9f9 !important; }
       `}</style>
 
-      {/* ── Hero Header ── */}
-      <div style={{
-        background: 'linear-gradient(135deg, #0d1b2a 0%, #1a3a5c 100%)',
-        padding: '2rem 2.5rem', color: 'white', position: 'relative', overflow: 'hidden',
-      }}>
-        <div style={{ position: 'absolute', right: '-60px', top: '-60px', width: '260px', height: '260px', borderRadius: '50%', background: 'rgba(255,255,255,0.04)', pointerEvents: 'none' }} />
-
-        {/* Back button */}
+      {/* Header */}
+      <div style={{ background: 'linear-gradient(135deg, #0d1b2a 0%, #1a3a5c 100%)', padding: '2rem 2.5rem', color: 'white' }}>
         <button
-          onClick={() => router.back()}
+          onClick={() => router.push('/Dashboard')}
           style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.65)', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem', fontFamily: 'Montserrat, sans-serif' }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-          BACK
+          BACK TO DASHBOARD
         </button>
+        <h1 style={{ fontSize: 'clamp(1.8rem, 4vw, 2.8rem)', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.4rem' }}>
+          My Travel Plans
+        </h1>
+        <p style={{ fontSize: '0.82rem', opacity: 0.65 }}>All your saved trips and booking statuses</p>
+      </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
-          <div>
-            <p style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', opacity: 0.55, marginBottom: '0.4rem' }}>
-              Your Trip Itinerary
-            </p>
-            <h1 style={{ fontSize: 'clamp(1.8rem, 4vw, 3rem)', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.6rem' }}>
-              {destination}
-            </h1>
-            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-              {[
-                `📅 ${duration} days`,
-                `👥 ${travelType}`,
-                startDate ? `🗓 ${startDate} → ${endDate}` : null,
-              ].filter(Boolean).map(t => (
-                <span key={t} style={{ fontSize: '0.78rem', opacity: 0.75 }}>{t}</span>
-              ))}
-            </div>
+      <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '2.5rem 1.5rem' }}>
+
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '5rem', color: '#888' }}>
+            <div style={{ width: '36px', height: '36px', border: '3px solid #eee', borderTop: '3px solid #0d1b2a', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 1rem' }} />
+            Loading your trips...
           </div>
-
-          {/* ── Save Button ── */}
-          {!saved ? (
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              style={{
-                padding: '0.75rem 1.5rem',
-                background: saving ? 'rgba(255,255,255,0.2)' : 'white',
-                color: '#0d1b2a', border: 'none',
-                cursor: saving ? 'not-allowed' : 'pointer',
-                fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase',
-                fontFamily: 'Montserrat, sans-serif', display: 'flex', alignItems: 'center', gap: '0.5rem',
-              }}
-            >
-              {saving ? (
-                <>
-                  <div style={{ width: '12px', height: '12px', border: '2px solid #ccc', borderTop: '2px solid #0d1b2a', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-                    <polyline points="17 21 17 13 7 13 7 21"/>
-                    <polyline points="7 3 7 8 15 8"/>
-                  </svg>
-                  Save Trip
-                </>
-              )}
+        ) : trips.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '5rem 2rem', background: 'white', border: '1px solid #eee' }}>
+            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🗺️</div>
+            <h2 style={{ fontSize: '1rem', fontWeight: 800, color: '#0d1b2a', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>No Trips Yet</h2>
+            <p style={{ fontSize: '0.85rem', color: '#888', marginBottom: '1.5rem' }}>Start planning your first adventure and save it here.</p>
+            <button onClick={() => router.push('/Newtrip')} style={{ padding: '0.85rem 2rem', background: '#0d1b2a', color: 'white', border: 'none', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', fontFamily: 'Montserrat, sans-serif' }}>
+              Plan New Trip
             </button>
-          ) : (
-            <div style={{ padding: '0.75rem 1.5rem', background: '#22c55e', color: 'white', fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
-              Saved!
-            </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {trips.map((trip, idx) => {
+              const hotel           = typeof trip.hotel === 'string' ? JSON.parse(trip.hotel || '{}') : (trip.hotel || {});
+              const budgetBreakdown = typeof trip.budget_breakdown === 'string' ? JSON.parse(trip.budget_breakdown || '{}') : (trip.budget_breakdown || {});
+              const activities      = typeof trip.activities === 'string' ? JSON.parse(trip.activities || '[]') : (trip.activities || []);
+              const isOpen          = expanded === trip.id;
+              const booking         = bookings[trip.id];
+              const bStatus         = booking ? (BOOKING_STATUS[booking.status] || BOOKING_STATUS.pending) : null;
+              const emergency       = getEmergencyInfo(trip.destination);
 
-        {/* Save error message */}
-        {saveError && (
-          <div style={{ marginTop: '0.75rem', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)', padding: '0.6rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fca5a5" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            <p style={{ fontSize: '0.75rem', color: '#fca5a5', margin: 0 }}>{saveError}</p>
+              return (
+                <div key={trip.id} className="trip-card" style={{ background: 'white', border: '1px solid #eee', overflow: 'hidden', animation: `fadeUp 0.3s ease ${idx * 0.05}s both` }}>
+
+                  {/* ── Card Header ── */}
+                  <div style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap' }}>
+
+                    {/* Initial badge */}
+                    <div style={{ width: '52px', height: '52px', background: '#0d1b2a', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', fontWeight: 900, flexShrink: 0 }}>
+                      {trip.destination?.charAt(0).toUpperCase()}
+                    </div>
+
+                    {/* Info */}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.3rem' }}>
+                        <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0d1b2a' }}>{trip.destination}</h3>
+                        <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '0.2rem 0.55rem', background: '#eff6ff', color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                          {trip.status || 'upcoming'}
+                        </span>
+                        {bStatus && (
+                          <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '0.2rem 0.65rem', background: bStatus.bg, color: bStatus.color, letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: bStatus.dot, display: 'inline-block', animation: booking?.status === 'payment_requested' ? 'pulse 1.5s infinite' : 'none' }} />
+                            {bStatus.label}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap' }}>
+                        {[
+                          `📅 ${trip.duration} days`,
+                          `👥 ${trip.travel_type}`,
+                          trip.start_date ? `🗓 ${formatDate(trip.start_date)}` : null,
+                          hotel.name ? `🏨 ${hotel.name}` : null,
+                          `💰 ৳${(budgetBreakdown.total || trip.budget_max || 0).toLocaleString()}`,
+                        ].filter(Boolean).map(t => (
+                          <span key={t} style={{ fontSize: '0.75rem', color: '#666' }}>{t}</span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div style={{ display: 'flex', gap: '0.6rem', flexShrink: 0, flexWrap: 'wrap' }}>
+                      {booking?.status === 'payment_requested' && (
+                        <button
+                          onClick={() => openPayModal(booking)}
+                          style={{ padding: '0.6rem 1.1rem', background: '#1d4ed8', color: 'white', border: 'none', cursor: 'pointer', fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', fontFamily: 'Montserrat, sans-serif', animation: 'pulse 2s infinite' }}
+                        >
+                          💳 PAY ৳{Number(booking.payment_amount).toLocaleString()}
+                        </button>
+                      )}
+                      <button onClick={() => viewTrip(trip)} style={{ padding: '0.6rem 1.1rem', background: '#0d1b2a', color: 'white', border: 'none', cursor: 'pointer', fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', fontFamily: 'Montserrat, sans-serif' }}>
+                        View Plan
+                      </button>
+                      <button onClick={() => setExpanded(isOpen ? null : trip.id)} style={{ padding: '0.6rem 0.9rem', background: 'transparent', color: '#555', border: '1px solid #ddd', cursor: 'pointer', fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', fontFamily: 'Montserrat, sans-serif' }}>
+                        {isOpen ? 'Less ▲' : 'Details ▼'}
+                      </button>
+                      <button onClick={() => handleDelete(trip.id)} disabled={deleting === trip.id} style={{ padding: '0.6rem 0.75rem', background: 'transparent', color: '#e53e3e', border: '1px solid #fca5a5', cursor: 'pointer', fontFamily: 'Montserrat, sans-serif' }} title="Delete trip">
+                        {deleting === trip.id ? (
+                          <div style={{ width: '12px', height: '12px', border: '2px solid #fca5a5', borderTop: '2px solid #e53e3e', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                        ) : (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* ── Booking status bar ── */}
+                  {booking && (
+                    <div style={{ background: bStatus.bg, borderTop: `1px solid ${bStatus.dot}22`, padding: '0.6rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: bStatus.color }}>{bStatus.label}</span>
+                        {booking.hotel_name && <span style={{ fontSize: '0.72rem', color: '#555' }}>🏨 {booking.hotel_name}</span>}
+                        {booking.payment_amount && (
+                          <span style={{ fontSize: '0.72rem', color: '#555' }}>
+                            Amount: <strong style={{ color: '#0d1b2a' }}>৳{Number(booking.payment_amount).toLocaleString()}</strong>
+                            {booking.payment_note && ` — ${booking.payment_note}`}
+                          </span>
+                        )}
+                      </div>
+                      {booking.status === 'payment_requested' && (
+                        <button
+                          onClick={() => openPayModal(booking)}
+                          style={{ padding: '0.4rem 1rem', background: '#1d4ed8', color: 'white', border: 'none', cursor: 'pointer', fontSize: '0.65rem', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', fontFamily: 'Montserrat, sans-serif' }}
+                        >
+                          Pay Now
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── Expandable Details ── */}
+                  {isOpen && (
+                    <div style={{ borderTop: '1px solid #f0f0f0', padding: '1.5rem', background: '#fafafa', animation: 'fadeUp 0.25s ease' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.25rem' }}>
+
+                        {/* Hotel */}
+                        <div>
+                          <p style={{ fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#888', marginBottom: '0.6rem' }}>Hotel</p>
+                          {hotel.name ? (
+                            <>
+                              <p style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0d1b2a', marginBottom: '0.2rem' }}>{hotel.name}</p>
+                              <p style={{ fontSize: '0.75rem', color: '#888', marginBottom: '0.4rem' }}>📍 {hotel.location}</p>
+                              <p style={{ fontSize: '0.75rem', color: '#555' }}>★ {hotel.rating} · {hotel.tier}</p>
+                              <p style={{ fontSize: '0.75rem', color: '#555' }}>৳{hotel.priceMin?.toLocaleString()} – ৳{hotel.priceMax?.toLocaleString()}/night</p>
+                            </>
+                          ) : <p style={{ fontSize: '0.82rem', color: '#888' }}>—</p>}
+                        </div>
+
+                        {/* Budget */}
+                        <div>
+                          <p style={{ fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#888', marginBottom: '0.6rem' }}>Budget Breakdown</p>
+                          {Object.keys(budgetBreakdown).length > 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                              {[
+                                { label: '🏨 Hotel', key: 'hotel' },
+                                { label: '🍽 Food', key: 'food' },
+                                { label: '🚗 Transport', key: 'transport' },
+                                { label: '🎯 Activities', key: 'activities' },
+                              ].map(item => (
+                                <div key={item.key} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                                  <span style={{ color: '#666' }}>{item.label}</span>
+                                  <span style={{ fontWeight: 600, color: '#0d1b2a' }}>৳{(budgetBreakdown[item.key] || 0).toLocaleString()}</span>
+                                </div>
+                              ))}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', borderTop: '1px solid #e5e5e5', paddingTop: '0.35rem', marginTop: '0.2rem' }}>
+                                <span style={{ fontWeight: 800, color: '#0d1b2a' }}>TOTAL</span>
+                                <span style={{ fontWeight: 800, color: '#0d1b2a' }}>৳{(budgetBreakdown.total || 0).toLocaleString()}</span>
+                              </div>
+                            </div>
+                          ) : <p style={{ fontSize: '0.82rem', color: '#888' }}>—</p>}
+                        </div>
+
+                        {/* Activities */}
+                        <div>
+                          <p style={{ fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#888', marginBottom: '0.6rem' }}>
+                            Activities ({activities.length})
+                          </p>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                            {activities.slice(0, 5).map((a, i) => (
+                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
+                                <span style={{ fontSize: '0.75rem', color: '#555' }}>{a}</span>
+                              </div>
+                            ))}
+                            {activities.length > 5 && <p style={{ fontSize: '0.72rem', color: '#999' }}>+{activities.length - 5} more</p>}
+                          </div>
+                        </div>
+                      </div>
+
+                      {trip.overview && (
+                        <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: '1px solid #eee' }}>
+                          <p style={{ fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#888', marginBottom: '0.4rem' }}>Overview</p>
+                          <p style={{ fontSize: '0.82rem', color: '#555', lineHeight: 1.75 }}>{trip.overview}</p>
+                        </div>
+                      )}
+
+                      {/* ── Emergency & Safety Info ── */}
+                      <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: '2px solid #fee2e2' }}>
+                        <p style={{ fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#dc2626', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          🚨 Emergency & Safety Info
+                        </p>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.25rem' }}>
+
+                          {/* National emergency numbers */}
+                          <div>
+                            <p style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#888', marginBottom: '0.6rem' }}>National Numbers</p>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                              {[
+                                { icon: '🚔', label: 'Police',    number: emergency.police    },
+                                { icon: '🚑', label: 'Ambulance', number: emergency.ambulance },
+                                { icon: '🚒', label: 'Fire',      number: emergency.fire      },
+                              ].map(e => (
+                                <div key={e.label} className="emergency-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.45rem 0.6rem', background: '#fff5f5', border: '1px solid #fecaca', borderRadius: '2px' }}>
+                                  <span style={{ fontSize: '0.75rem', color: '#555' }}>{e.icon} {e.label}</span>
+                                  <span style={{ fontSize: '0.85rem', fontWeight: 900, color: '#dc2626', letterSpacing: '0.06em' }}>{e.number}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Nearby hospitals */}
+                          <div>
+                            <p style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#888', marginBottom: '0.6rem' }}>Nearby Hospitals</p>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                              {emergency.hospitals.map((h, i) => (
+                                <div key={i} style={{ padding: '0.5rem 0.65rem', background: 'white', border: '1px solid #e5e5e5', borderLeft: '3px solid #dc2626' }}>
+                                  <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0d1b2a', marginBottom: '0.15rem' }}>🏥 {h.name}</p>
+                                  <p style={{ fontSize: '0.68rem', color: '#888', marginBottom: '0.15rem' }}>📍 {h.address}</p>
+                                  <p style={{ fontSize: '0.72rem', fontWeight: 600, color: '#dc2626' }}>📞 {h.phone}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Emergency contacts */}
+                          <div>
+                            <p style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#888', marginBottom: '0.6rem' }}>Emergency Contacts</p>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                              {emergency.emergency_contacts.map((c, i) => (
+                                <div key={i} className="emergency-row" style={{ padding: '0.5rem 0.65rem', background: 'white', border: '1px solid #e5e5e5', borderLeft: '3px solid #f97316' }}>
+                                  <p style={{ fontSize: '0.72rem', color: '#666', marginBottom: '0.15rem' }}>{c.label}</p>
+                                  <p style={{ fontSize: '0.78rem', fontWeight: 700, color: '#c2410c' }}>📞 {c.number}</p>
+                                </div>
+                              ))}
+                              <div style={{ padding: '0.5rem 0.65rem', background: '#fff7ed', border: '1px solid #fed7aa', borderLeft: '3px solid #f97316', marginTop: '0.25rem' }}>
+                                <p style={{ fontSize: '0.65rem', color: '#92400e', lineHeight: 1.5 }}>
+                                  ⚠️ <strong>Note:</strong> Always save these numbers offline before traveling. Numbers marked with * are operational 24/7.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                        </div>
+                      </div>
+                      {/* ── End Emergency Info ── */}
+
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {!loading && trips.length > 0 && (
+          <div style={{ textAlign: 'center', marginTop: '2.5rem' }}>
+            <button
+              onClick={() => router.push('/Newtrip')}
+              style={{ padding: '0.9rem 2.5rem', background: '#0d1b2a', color: 'white', border: 'none', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', fontFamily: 'Montserrat, sans-serif' }}
+              onMouseEnter={e => e.currentTarget.style.background = '#1a3a5c'}
+              onMouseLeave={e => e.currentTarget.style.background = '#0d1b2a'}
+            >
+              + Plan Another Trip
+            </button>
           </div>
         )}
       </div>
 
-      {/* ── Main Content ── */}
-      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem 1.5rem' }}>
+      {/* ── Payment Modal ── */}
+      {payModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '1rem' }}>
+          <div style={{ background: 'white', width: '100%', maxWidth: '460px', animation: 'fadeUp 0.25s ease' }}>
 
-        {/* Overview */}
-        {safeOverview && (
-          <div style={{ background: 'white', border: '1px solid #eee', padding: '1.5rem', marginBottom: '1.5rem', animation: 'fadeUp 0.4s ease' }}>
-            <p style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#888', marginBottom: '0.5rem' }}>Trip Overview</p>
-            <p style={{ fontSize: '0.88rem', color: '#444', lineHeight: 1.8 }}>{safeOverview}</p>
-          </div>
-        )}
-
-        {/* Hotel + Budget */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.5rem' }}>
-
-          {/* Hotel */}
-          {hotel && hotel.name && (
-            <div style={{ background: 'white', border: '1px solid #eee', overflow: 'hidden', animation: 'fadeUp 0.4s ease 0.1s both' }}>
-              <div style={{ height: '140px', overflow: 'hidden' }}>
-                <img
-                  src={hotel.img}
-                  alt={hotel.name}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  onError={e => { e.target.style.display = 'none'; }}
-                />
+            <div style={{ background: '#0d1b2a', padding: '1.25rem 1.5rem', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <p style={{ fontSize: '0.62rem', opacity: 0.6, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '0.25rem' }}>Complete Payment</p>
+                <h3 style={{ fontSize: '1rem', fontWeight: 800 }}>{payModal.hotel_name}</h3>
               </div>
-              <div style={{ padding: '1.25rem' }}>
-                <p style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#888', marginBottom: '0.3rem' }}>Your Hotel</p>
-                <p style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0d1b2a', marginBottom: '0.2rem' }}>{hotel.name}</p>
-                <p style={{ fontSize: '0.75rem', color: '#888', marginBottom: '0.75rem' }}>📍 {hotel.location}</p>
-                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
-                  <span style={{ fontSize: '0.75rem', color: '#f59e0b', fontWeight: 700 }}>★ {hotel.rating}</span>
-                  <span style={{ fontSize: '0.75rem', color: '#0d1b2a', fontWeight: 600 }}>{hotel.tier}</span>
-                  <span style={{ fontSize: '0.75rem', color: '#555' }}>
-                    ৳{hotel.priceMin?.toLocaleString()} – ৳{hotel.priceMax?.toLocaleString()}/night
-                  </span>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
-                  {(hotel.amenities || []).map(a => (
-                    <span key={a} style={{ fontSize: '0.62rem', background: '#f0f4f8', color: '#444', padding: '0.2rem 0.5rem', fontWeight: 600 }}>{a}</span>
-                  ))}
-                </div>
+              <div style={{ textAlign: 'right' }}>
+                <p style={{ fontSize: '0.62rem', opacity: 0.6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Amount</p>
+                <p style={{ fontSize: '1.3rem', fontWeight: 900 }}>৳{Number(payModal.payment_amount).toLocaleString()}</p>
               </div>
             </div>
-          )}
 
-          {/* Budget Breakdown */}
-          {Object.keys(safeBudget).length > 0 && (
-            <div style={{ background: 'white', border: '1px solid #eee', padding: '1.25rem', animation: 'fadeUp 0.4s ease 0.15s both' }}>
-              <p style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#888', marginBottom: '1rem' }}>Budget Breakdown</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                {[
-                  { label: '🏨 Hotel',      key: 'hotel',      color: '#3b82f6' },
-                  { label: '🍽 Food',       key: 'food',       color: '#f59e0b' },
-                  { label: '🚗 Transport',  key: 'transport',  color: '#8b5cf6' },
-                  { label: '🎯 Activities', key: 'activities', color: '#22c55e' },
-                ].map(item => {
-                  const val   = safeBudget[item.key] || 0;
-                  const total = safeBudget.total || 1;
-                  const pct   = Math.round((val / total) * 100);
-                  return (
-                    <div key={item.key}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                        <span style={{ fontSize: '0.78rem', color: '#555' }}>{item.label}</span>
-                        <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0d1b2a' }}>৳{val.toLocaleString()}</span>
-                      </div>
-                      <div style={{ height: '5px', background: '#f0f0f0', borderRadius: '3px' }}>
-                        <div style={{ height: '100%', width: `${pct}%`, background: item.color, borderRadius: '3px', transition: 'width 0.8s ease' }} />
-                      </div>
-                    </div>
-                  );
-                })}
-                <div style={{ marginTop: '0.5rem', paddingTop: '0.75rem', borderTop: '2px solid #0d1b2a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0d1b2a', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Total</span>
-                  <span style={{ fontSize: '1.05rem', fontWeight: 900, color: '#0d1b2a' }}>৳{(safeBudget.total || 0).toLocaleString()}</span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Day-by-Day Itinerary */}
-        {days.length > 0 && (
-          <div style={{ marginBottom: '1.5rem', animation: 'fadeUp 0.4s ease 0.2s both' }}>
-            <h2 style={{ fontSize: '0.75rem', fontWeight: 900, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#0d1b2a', marginBottom: '1rem', paddingBottom: '0.5rem', borderBottom: '2px solid #0d1b2a' }}>
-              Day-by-Day Itinerary
-            </h2>
-
-            {/* Day tabs */}
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
-              {days.map((d, i) => (
-                <button
-                  key={i}
-                  className="day-btn"
-                  onClick={() => setActiveDay(i)}
-                  style={{
-                    padding: '0.5rem 1rem',
-                    background: activeDay === i ? '#0d1b2a' : 'white',
-                    color:      activeDay === i ? 'white'   : '#555',
-                    border:     activeDay === i ? '1.5px solid #0d1b2a' : '1px solid #ddd',
-                    cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700,
-                    letterSpacing: '0.06em', fontFamily: 'Montserrat, sans-serif',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  Day {d.day}
-                </button>
-              ))}
-            </div>
-
-            {/* Active day */}
-            {currentDay && (
-              <div key={activeDay} style={{ background: 'white', border: '1px solid #eee', overflow: 'hidden', animation: 'fadeUp 0.3s ease' }}>
-                <div style={{ background: '#0d1b2a', padding: '1.25rem 1.5rem', color: 'white' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                    <div>
-                      <p style={{ fontSize: '0.62rem', opacity: 0.55, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.25rem' }}>Day {currentDay.day}</p>
-                      <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>{currentDay.title}</h3>
-                      {currentDay.theme && <p style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '0.2rem' }}>{currentDay.theme}</p>}
-                    </div>
-                    {currentDay.estimatedDailyCost && (
-                      <div style={{ textAlign: 'right' }}>
-                        <p style={{ fontSize: '0.62rem', opacity: 0.55, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Est. Daily Cost</p>
-                        <p style={{ fontSize: '1rem', fontWeight: 800 }}>৳{currentDay.estimatedDailyCost.toLocaleString()}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  {(currentDay.activities || []).map((act, i) => {
-                    const t = typeColors[act.type] || typeColors.leisure;
-                    return (
-                      <div
-                        key={i}
-                        className="activity-row"
-                        style={{ display: 'flex', gap: '1rem', padding: '1rem 1.5rem', borderBottom: '1px solid #f0f0f0', alignItems: 'flex-start', transition: 'background 0.15s' }}
-                      >
-                        <div style={{ minWidth: '72px', fontSize: '0.72rem', fontWeight: 700, color: '#888', paddingTop: '0.15rem' }}>{act.time}</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '4px' }}>
-                          <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#0d1b2a', flexShrink: 0 }} />
-                          {i < (currentDay.activities.length - 1) && (
-                            <div style={{ width: '1px', height: '100%', minHeight: '24px', background: '#e5e5e5', margin: '3px 0' }} />
-                          )}
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem', flexWrap: 'wrap' }}>
-                            <p style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0d1b2a' }}>{act.activity}</p>
-                            <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '0.15rem 0.45rem', background: t.bg, color: t.color, borderRadius: '2px' }}>{t.label}</span>
-                          </div>
-                          <p style={{ fontSize: '0.78rem', color: '#666', lineHeight: 1.6 }}>{act.description}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+            {payModal.payment_note && (
+              <div style={{ background: '#f0f4ff', padding: '0.65rem 1.5rem', fontSize: '0.78rem', color: '#444', borderBottom: '1px solid #e5e5e5' }}>
+                📝 {payModal.payment_note}
               </div>
             )}
-          </div>
-        )}
 
-        {/* Travel Tips */}
-        {safeTips.length > 0 && (
-          <div style={{ animation: 'fadeUp 0.4s ease 0.25s both' }}>
-            <h2 style={{ fontSize: '0.75rem', fontWeight: 900, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#0d1b2a', marginBottom: '1rem', paddingBottom: '0.5rem', borderBottom: '2px solid #0d1b2a' }}>
-              Travel Tips &amp; Advice
-            </h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
-              {safeTips.map((tip, i) => (
-                <div key={i} style={{ background: 'white', border: '1px solid #eee', padding: '1.25rem' }}>
-                  <p style={{ fontSize: '0.65rem', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#0d1b2a', marginBottom: '0.5rem' }}>
-                    {tip.category}
-                  </p>
-                  <p style={{ fontSize: '0.82rem', color: '#555', lineHeight: 1.7 }}>{tip.tip}</p>
+            <div style={{ padding: '1.5rem' }}>
+              {paySuccess ? (
+                <div style={{ textAlign: 'center', padding: '2rem 0' }}>
+                  <div style={{ fontSize: '3rem', marginBottom: '0.75rem' }}>✅</div>
+                  <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#15803d', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Payment Submitted!</h3>
+                  <p style={{ fontSize: '0.82rem', color: '#555' }}>Waiting for hotel confirmation.</p>
                 </div>
-              ))}
+              ) : (
+                <>
+                  <p style={{ fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#444', marginBottom: '0.75rem' }}>Select Payment Method</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1.25rem' }}>
+                    {PAYMENT_METHODS.map(m => (
+                      <button
+                        key={m.id}
+                        className="pay-method"
+                        onClick={() => setPayMethod(m.id)}
+                        style={{
+                          padding: '0.75rem',
+                          border: payMethod === m.id ? '2px solid #0d1b2a' : '1px solid #ddd',
+                          background: payMethod === m.id ? '#0d1b2a' : 'white',
+                          color: payMethod === m.id ? 'white' : '#333',
+                          cursor: 'pointer', textAlign: 'left',
+                          fontFamily: 'Montserrat, sans-serif',
+                          transition: 'border-color 0.15s',
+                        }}
+                      >
+                        <div style={{ fontSize: '1.2rem', marginBottom: '0.2rem' }}>{m.logo}</div>
+                        <div style={{ fontSize: '0.78rem', fontWeight: 700 }}>{m.label}</div>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#444', marginBottom: '0.4rem' }}>
+                      Your Full Name <span style={{ color: '#e53e3e' }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="John Doe"
+                      value={payName}
+                      onChange={e => setPayName(e.target.value)}
+                      style={{ width: '100%', padding: '0.75rem 1rem', border: '1px solid #ddd', fontSize: '0.88rem', fontFamily: 'Montserrat, sans-serif', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: '1.25rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#444', marginBottom: '0.4rem' }}>
+                      {PAYMENT_METHODS.find(m => m.id === payMethod)?.number_label} <span style={{ color: '#e53e3e' }}>*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder={payMethod === 'bank' ? 'Account number' : '01XXXXXXXXX'}
+                      value={payNumber}
+                      onChange={e => setPayNumber(e.target.value)}
+                      style={{ width: '100%', padding: '0.75rem 1rem', border: '1px solid #ddd', fontSize: '0.88rem', fontFamily: 'Montserrat, sans-serif', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+
+                  {payError && (
+                    <div style={{ background: '#fff0f0', border: '1px solid #ffcccc', color: '#cc0000', fontSize: '0.78rem', padding: '0.6rem 0.75rem', marginBottom: '1rem' }}>
+                      {payError}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <button
+                      onClick={handlePay}
+                      disabled={paying}
+                      style={{ flex: 1, padding: '0.9rem', background: paying ? '#999' : '#0d1b2a', color: 'white', border: 'none', cursor: paying ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', fontFamily: 'Montserrat, sans-serif', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+                    >
+                      {paying ? (
+                        <><div style={{ width: '12px', height: '12px', border: '2px solid rgba(255,255,255,0.4)', borderTop: '2px solid white', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /> Processing...</>
+                      ) : `Confirm Payment`}
+                    </button>
+                    <button
+                      onClick={() => setPayModal(null)}
+                      style={{ padding: '0.9rem 1.25rem', background: 'transparent', color: '#555', border: '1px solid #ddd', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', fontFamily: 'Montserrat, sans-serif' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
-        )}
-      </div>
-
-      {/* ── Sticky Bottom Bar ── */}
-      <div style={{
-        position: 'fixed', bottom: 0, left: 0, right: 0,
-        background: '#0d1b2a', padding: '1rem 2rem',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        flexWrap: 'wrap', gap: '0.5rem', zIndex: 50,
-      }}>
-        <div style={{ color: 'white', fontSize: '0.8rem' }}>
-          <span style={{ opacity: 0.6 }}>Total Budget: </span>
-          <strong>৳{(safeBudget?.total || 0).toLocaleString()}</strong>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button
-            onClick={() => router.back()}
-            style={{ padding: '0.65rem 1.25rem', background: 'transparent', color: 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', fontFamily: 'Montserrat, sans-serif' }}
-          >
-            Customize Again
-          </button>
-          <button
-            onClick={() => router.push('/Dashboard')}
-            style={{ padding: '0.65rem 1.25rem', background: 'white', color: '#0d1b2a', border: 'none', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', fontFamily: 'Montserrat, sans-serif' }}
-          >
-            Dashboard
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
