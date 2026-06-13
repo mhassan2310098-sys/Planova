@@ -19,6 +19,26 @@ const PAYMENT_METHODS = [
   { id: 'bank',   label: 'Bank Transfer',  logo: '🏦', number_label: 'Account Number' },
 ];
 
+// Generate dummy but destination-consistent emergency info
+const getEmergencyInfo = (destination) => {
+  const city = destination?.split(',')[0]?.trim() || 'the city';
+  return {
+    police:    '999',
+    ambulance: '199',
+    fire:      '199',
+    hospitals: [
+      { name: `${city} General Hospital`,    address: `12 Hospital Road, ${city}`,         phone: '+880 1711-000001' },
+      { name: `${city} Medical Centre`,      address: `45 Health Avenue, ${city}`,         phone: '+880 1711-000002' },
+      { name: `Central Clinic ${city}`,      address: `8 Clinic Lane, Central ${city}`,    phone: '+880 1711-000003' },
+    ],
+    emergency_contacts: [
+      { label: 'Local Tourism Helpline', number: '+880 1800-000100' },
+      { label: 'Hotel Front Desk (24h)', number: '+880 1711-100200' },
+      { label: 'Planova Support',        number: '+880 1700-657656' },
+    ],
+  };
+};
+
 export default function MyTripsPage() {
   const router = useRouter();
   const [trips, setTrips]           = useState([]);
@@ -56,7 +76,6 @@ export default function MyTripsPage() {
       const json = await res.json();
       if (json.success) {
         setTrips(json.trips);
-        // Fetch booking status for each trip
         fetchAllBookings(json.trips, token);
       }
     } catch (err) { console.error(err); }
@@ -152,7 +171,6 @@ export default function MyTripsPage() {
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.error || 'Payment failed.');
       setPaySuccess(true);
-      // Update local booking state
       setBookings(prev => ({
         ...prev,
         [payModal.trip_id]: { ...prev[payModal.trip_id], status: 'paid', payment_status: 'paid' },
@@ -174,6 +192,7 @@ export default function MyTripsPage() {
         .trip-card:hover { box-shadow: 0 6px 24px rgba(0,0,0,0.09) !important; }
         .trip-card { transition: box-shadow 0.2s !important; }
         .pay-method:hover { border-color: #0d1b2a !important; }
+        .emergency-row:hover { background: #f9f9f9 !important; }
       `}</style>
 
       {/* Header */}
@@ -216,6 +235,7 @@ export default function MyTripsPage() {
               const isOpen          = expanded === trip.id;
               const booking         = bookings[trip.id];
               const bStatus         = booking ? (BOOKING_STATUS[booking.status] || BOOKING_STATUS.pending) : null;
+              const emergency       = getEmergencyInfo(trip.destination);
 
               return (
                 <div key={trip.id} className="trip-card" style={{ background: 'white', border: '1px solid #eee', overflow: 'hidden', animation: `fadeUp 0.3s ease ${idx * 0.05}s both` }}>
@@ -235,7 +255,6 @@ export default function MyTripsPage() {
                         <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '0.2rem 0.55rem', background: '#eff6ff', color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                           {trip.status || 'upcoming'}
                         </span>
-                        {/* Booking status badge */}
                         {bStatus && (
                           <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '0.2rem 0.65rem', background: bStatus.bg, color: bStatus.color, letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: bStatus.dot, display: 'inline-block', animation: booking?.status === 'payment_requested' ? 'pulse 1.5s infinite' : 'none' }} />
@@ -258,8 +277,6 @@ export default function MyTripsPage() {
 
                     {/* Action buttons */}
                     <div style={{ display: 'flex', gap: '0.6rem', flexShrink: 0, flexWrap: 'wrap' }}>
-
-                      {/* PAY button — only when payment requested */}
                       {booking?.status === 'payment_requested' && (
                         <button
                           onClick={() => openPayModal(booking)}
@@ -268,7 +285,6 @@ export default function MyTripsPage() {
                           💳 PAY ৳{Number(booking.payment_amount).toLocaleString()}
                         </button>
                       )}
-
                       <button onClick={() => viewTrip(trip)} style={{ padding: '0.6rem 1.1rem', background: '#0d1b2a', color: 'white', border: 'none', cursor: 'pointer', fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', fontFamily: 'Montserrat, sans-serif' }}>
                         View Plan
                       </button>
@@ -285,16 +301,12 @@ export default function MyTripsPage() {
                     </div>
                   </div>
 
-                  {/* ── Booking status bar (if booking exists) ── */}
+                  {/* ── Booking status bar ── */}
                   {booking && (
                     <div style={{ background: bStatus.bg, borderTop: `1px solid ${bStatus.dot}22`, padding: '0.6rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: bStatus.color }}>
-                          {bStatus.label}
-                        </span>
-                        {booking.hotel_name && (
-                          <span style={{ fontSize: '0.72rem', color: '#555' }}>🏨 {booking.hotel_name}</span>
-                        )}
+                        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: bStatus.color }}>{bStatus.label}</span>
+                        {booking.hotel_name && <span style={{ fontSize: '0.72rem', color: '#555' }}>🏨 {booking.hotel_name}</span>}
                         {booking.payment_amount && (
                           <span style={{ fontSize: '0.72rem', color: '#555' }}>
                             Amount: <strong style={{ color: '#0d1b2a' }}>৳{Number(booking.payment_amount).toLocaleString()}</strong>
@@ -378,6 +390,68 @@ export default function MyTripsPage() {
                           <p style={{ fontSize: '0.82rem', color: '#555', lineHeight: 1.75 }}>{trip.overview}</p>
                         </div>
                       )}
+
+                      {/* ── Emergency & Safety Info ── */}
+                      <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: '2px solid #fee2e2' }}>
+                        <p style={{ fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#dc2626', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          🚨 Emergency & Safety Info
+                        </p>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.25rem' }}>
+
+                          {/* National emergency numbers */}
+                          <div>
+                            <p style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#888', marginBottom: '0.6rem' }}>National Numbers</p>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                              {[
+                                { icon: '🚔', label: 'Police',    number: emergency.police    },
+                                { icon: '🚑', label: 'Ambulance', number: emergency.ambulance },
+                                { icon: '🚒', label: 'Fire',      number: emergency.fire      },
+                              ].map(e => (
+                                <div key={e.label} className="emergency-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.45rem 0.6rem', background: '#fff5f5', border: '1px solid #fecaca', borderRadius: '2px' }}>
+                                  <span style={{ fontSize: '0.75rem', color: '#555' }}>{e.icon} {e.label}</span>
+                                  <span style={{ fontSize: '0.85rem', fontWeight: 900, color: '#dc2626', letterSpacing: '0.06em' }}>{e.number}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Nearby hospitals */}
+                          <div>
+                            <p style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#888', marginBottom: '0.6rem' }}>Nearby Hospitals</p>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                              {emergency.hospitals.map((h, i) => (
+                                <div key={i} style={{ padding: '0.5rem 0.65rem', background: 'white', border: '1px solid #e5e5e5', borderLeft: '3px solid #dc2626' }}>
+                                  <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0d1b2a', marginBottom: '0.15rem' }}>🏥 {h.name}</p>
+                                  <p style={{ fontSize: '0.68rem', color: '#888', marginBottom: '0.15rem' }}>📍 {h.address}</p>
+                                  <p style={{ fontSize: '0.72rem', fontWeight: 600, color: '#dc2626' }}>📞 {h.phone}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Emergency contacts */}
+                          <div>
+                            <p style={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#888', marginBottom: '0.6rem' }}>Emergency Contacts</p>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                              {emergency.emergency_contacts.map((c, i) => (
+                                <div key={i} className="emergency-row" style={{ padding: '0.5rem 0.65rem', background: 'white', border: '1px solid #e5e5e5', borderLeft: '3px solid #f97316' }}>
+                                  <p style={{ fontSize: '0.72rem', color: '#666', marginBottom: '0.15rem' }}>{c.label}</p>
+                                  <p style={{ fontSize: '0.78rem', fontWeight: 700, color: '#c2410c' }}>📞 {c.number}</p>
+                                </div>
+                              ))}
+                              <div style={{ padding: '0.5rem 0.65rem', background: '#fff7ed', border: '1px solid #fed7aa', borderLeft: '3px solid #f97316', marginTop: '0.25rem' }}>
+                                <p style={{ fontSize: '0.65rem', color: '#92400e', lineHeight: 1.5 }}>
+                                  ⚠️ <strong>Note:</strong> Always save these numbers offline before traveling. Numbers marked with * are operational 24/7.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                        </div>
+                      </div>
+                      {/* ── End Emergency Info ── */}
+
                     </div>
                   )}
                 </div>
@@ -405,7 +479,6 @@ export default function MyTripsPage() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '1rem' }}>
           <div style={{ background: 'white', width: '100%', maxWidth: '460px', animation: 'fadeUp 0.25s ease' }}>
 
-            {/* Modal header */}
             <div style={{ background: '#0d1b2a', padding: '1.25rem 1.5rem', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <p style={{ fontSize: '0.62rem', opacity: 0.6, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '0.25rem' }}>Complete Payment</p>
@@ -424,7 +497,6 @@ export default function MyTripsPage() {
             )}
 
             <div style={{ padding: '1.5rem' }}>
-
               {paySuccess ? (
                 <div style={{ textAlign: 'center', padding: '2rem 0' }}>
                   <div style={{ fontSize: '3rem', marginBottom: '0.75rem' }}>✅</div>
@@ -433,7 +505,6 @@ export default function MyTripsPage() {
                 </div>
               ) : (
                 <>
-                  {/* Payment method selector */}
                   <p style={{ fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#444', marginBottom: '0.75rem' }}>Select Payment Method</p>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1.25rem' }}>
                     {PAYMENT_METHODS.map(m => (
@@ -457,7 +528,6 @@ export default function MyTripsPage() {
                     ))}
                   </div>
 
-                  {/* Name */}
                   <div style={{ marginBottom: '1rem' }}>
                     <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#444', marginBottom: '0.4rem' }}>
                       Your Full Name <span style={{ color: '#e53e3e' }}>*</span>
@@ -471,7 +541,6 @@ export default function MyTripsPage() {
                     />
                   </div>
 
-                  {/* Number / Account */}
                   <div style={{ marginBottom: '1.25rem' }}>
                     <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#444', marginBottom: '0.4rem' }}>
                       {PAYMENT_METHODS.find(m => m.id === payMethod)?.number_label} <span style={{ color: '#e53e3e' }}>*</span>
@@ -517,3 +586,5 @@ export default function MyTripsPage() {
     </div>
   );
 }
+DOC-20260613-WA0000..txt
+Displaying DOC-20260613-WA0000..txt.
